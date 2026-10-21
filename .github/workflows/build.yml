@@ -1,0 +1,63 @@
+name: build-jar
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Projeyi bul
+        run: |
+          set -e
+          if [ -f build.gradle ]; then
+            DIR="."
+          else
+            ZIP=$(ls -1 ./*.zip 2>/dev/null | sort -V | tail -n1 || true)
+            if [ -z "$ZIP" ]; then
+              echo "::error::Repoda build.gradle ya da zip yok."
+              exit 1
+            fi
+            mkdir -p _src
+            unzip -q "$ZIP" -d _src
+            BG=$(find _src -maxdepth 3 -name build.gradle | head -n1)
+            DIR=$(dirname "$BG")
+          fi
+          echo "PROJECT_DIR=$DIR" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.2.1'
+
+      - name: Derle
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle build --no-daemon --stacktrace
+
+      - name: Jar'ı seç ve yayınla
+        run: |
+          set -e
+          JAR=$(ls -1 "$PROJECT_DIR"/build/libs/*.jar | grep -v -- '-sources.jar' | head -n1)
+          mkdir -p out
+          cp "$JAR" out/AutoSchematicBuilder-1.21.11.jar
+
+      - name: Release oluştur
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" out/AutoSchematicBuilder-1.21.11.jar \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Build ${{ github.run_number }}" \
+            --notes "Minecraft 1.21.11 Fabric jar"
